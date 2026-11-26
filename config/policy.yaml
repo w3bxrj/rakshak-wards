@@ -1,0 +1,5 @@
+# Secret Wards Privacy Policy (Phase 2)
+age_band_years: 5
+date_shift_max_days: 180
+max_json_depth: 64
+max_base64_attach_len: 24
