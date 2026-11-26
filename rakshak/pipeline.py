@@ -196,7 +196,29 @@ def run_pipeline(inp: Path, out: Path, policy_path: Path | None = None) -> dict[
                 rec_indices = []
                 if not array_keys:
                     r_idx = len(records)
-                    s_fields = {k: str(v) for k, v in data.items() if isinstance(v, (str, int))} if isinstance(data, dict) else {}
+                    s_fields: dict[str, str] = {}
+                    if is_fhir:
+                        for ent in data.get("entry") or []:
+                            res = ent.get("resource") if isinstance(ent, dict) else None
+                            if isinstance(res, dict) and res.get("resourceType") == "Patient":
+                                names = res.get("name") or []
+                                if isinstance(names, list) and names and isinstance(names[0], dict):
+                                    n0 = names[0]
+                                    full_nm = n0.get("text") or " ".join(
+                                        list(n0.get("given") or []) + ([n0["family"]] if n0.get("family") else [])
+                                    )
+                                    if full_nm:
+                                        s_fields["patient_name"] = str(full_nm)
+                                if res.get("gender"):
+                                    s_fields["gender"] = str(res["gender"])
+                                if res.get("birthDate"):
+                                    s_fields["dob"] = str(res["birthDate"])
+                                addrs = res.get("address") or []
+                                if isinstance(addrs, list) and addrs and isinstance(addrs[0], dict) and addrs[0].get("postalCode"):
+                                    s_fields["pin"] = str(addrs[0]["postalCode"])
+                                break
+                    elif isinstance(data, dict):
+                        s_fields = {k: str(v) for k, v in data.items() if isinstance(v, (str, int))}
                     all_features.append(
                         extract_features_from_text(
                             json.dumps(data, ensure_ascii=False), r_idx, out_rel, "doc", structured_fields=s_fields

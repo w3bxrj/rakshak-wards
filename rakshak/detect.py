@@ -166,13 +166,13 @@ _CO_ANCHOR_RE = re.compile(
     r"(?i)\bC/O\s*[:.-]?\s*([A-Z\u0900-\u097F][A-Za-z\u0900-\u097F.\s]{1,40}?)(?=\s*(?:[,\n;|()]|\(|$))"
 )
 _HONORIFIC_NAME_RE = re.compile(
-    r"\b([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){0,2})\s+(?:ji|sahab|saheb|bhai|didi|behenji)\b"
-    r"|([\u0900-\u097F]{2,20}(?:\s+[\u0900-\u097F]{2,20}){0,2})\s+(?:जी|साहब|दीदी|भाई)\b"
-    r"|(?i:\b(?:Mr|Mrs|Ms|Miss|Smt|Shri|Sri|Kumari|Master|Baby)\.?\s+)([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){0,2})\b"
-    r"|(?:श्री|श्रीमती|सुश्री|कुमारी)\s+([\u0900-\u097F]{2,20}(?:\s+[\u0900-\u097F]{2,20}){0,2})"
-    r"|(?i:\b(?:called\s+by|brought\s+by|accompanied\s+by|received\s+from|attendant|informant|guardian)\s*[:=-]?\s*)([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){0,2})(?='s\b|\s|[,\n]|$)"
-    r"|\b\d{1,2}:\d{2}\s*[-–]\s*([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){0,2})\b"
-    r"|\b([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){0,2})(?='s\s+attendant\b)"
+    r"\b([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){0,2})[ \t]+(?:ji|sahab|saheb|bhai|didi|behenji)\b"
+    r"|([\u0900-\u097F]{2,20}(?:[ \t]+[\u0900-\u097F]{2,20}){0,2})[ \t]+(?:जी|साहब|दीदी|भाई)\b"
+    r"|(?i:\b(?:Mr|Mrs|Ms|Miss|Smt|Shri|Sri|Kumari|Master|Baby)\.?[ \t]+)([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){0,2})\b"
+    r"|(?:श्री|श्रीमती|सुश्री|कुमारी)[ \t]+([\u0900-\u097F]{2,20}(?:[ \t]+[\u0900-\u097F]{2,20}){0,2})"
+    r"|(?i:\b(?:called[ \t]+by|brought[ \t]+by|accompanied[ \t]+by|received[ \t]+from|attendant|informant|guardian)[ \t]*[:=-]?[ \t]*)([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){0,2})(?='s\b|[ \t]|[,\n]|$)"
+    r"|\b\d{1,2}:\d{2}[ \t]*[-–][ \t]*([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){0,2})\b"
+    r"|\b([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){0,2})(?='s[ \t]+attendant\b)"
 )
 _BEFORE_VITALS_OR_AGE_RE = re.compile(
     r"(?:^|(?<=\n)|(?<=;\s)|(?<=\.\s))([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){0,2}|[\u0900-\u097F]{2,20}(?:\s+[\u0900-\u097F]{2,20}){1,2})\s+(?=(?:ka|ki|ke|को|का|की|के)\s+(?:BP|Temp|Pulse|SpO2|sugar|Hb|condition|\d+\s+दिन)\b|\d{1,3}\s*(?:/\s*[MF]|Y\s*/\s*[MF]|Yrs|वर्ष))"
@@ -281,6 +281,15 @@ def redact_structured_value(field_name: str, value: str) -> tuple[str, int]:
         if tag == "LOCALITY":
             cleaned, n = redact_free_text(value)
             if n > 0:
-                return cleaned, n
+                parts = [p.strip() for p in cleaned.split(",")]
+                out_parts: list[str] = []
+                extra = 0
+                for p in parts:
+                    if not p or re.fullmatch(r"(?:\[[A-Z_]+\]\s*)+", p):
+                        out_parts.append(p)
+                    else:
+                        out_parts.append("[LOCALITY]")
+                        extra += 1
+                return ", ".join(out_parts), n + extra
         return f"[{tag}]", 1
     return redact_free_text(value)

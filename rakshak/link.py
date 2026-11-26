@@ -42,6 +42,21 @@ _DOB_RE = re.compile(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b|\b(\d{4})[/-](\d{
 _REL_RE = re.compile(r"(?i)\b(?:S/o|D/o|W/o|F/o|M/o|H/o)\s*[:.-]?\s*([A-Z\u0900-\u097F][A-Za-z\u0900-\u097F.\s]{1,35}?)(?=[,\n;|()]|$)")
 
 
+def _normalize_dob(raw: str) -> str:
+    s = normalize_digits(raw).strip()
+    m = re.match(r"^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$", s)
+    if m:
+        return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    m = re.match(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$", s)
+    if m:
+        a, b, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if b <= 12:
+            return f"{y:04d}-{b:02d}-{a:02d}"
+        if a <= 12:
+            return f"{y:04d}-{a:02d}-{b:02d}"
+    return s
+
+
 def _clean_tokens(raw: str) -> list[str]:
     if not raw or raw.strip().casefold() in _PLACEHOLDERS:
         return []
@@ -250,8 +265,8 @@ def extract_features_from_text(
                 m_age = re.search(r"\d{1,3}", normalize_digits(v))
                 if m_age and 0 <= int(m_age.group(0)) <= 120:
                     feat.age = int(m_age.group(0))
-            elif kl in {"dob", "birth_date", "date_of_birth"} and not feat.dob:
-                feat.dob = normalize_digits(v).strip()
+            elif kl in {"dob", "birth_date", "date_of_birth", "birthdate"} and not feat.dob:
+                feat.dob = _normalize_dob(v)
             elif kl in {"pin", "pincode", "pin_code"} and not feat.pin:
                 m_pin = re.search(r"[1-9]\d{5}", normalize_digits(v))
                 if m_pin:
