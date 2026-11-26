@@ -26,7 +26,8 @@ def transliterate_deva(text: str) -> str:
 
 # --------------------------------------------------------------------------- clinical protection
 _CLINICIAN_RE = re.compile(
-    r"(?i)\b(?:Dr|Prof|Doctor|Consultant|Physician)\.?\s*[:=-]?\s*(?:Dr\.?\s*)?[A-Z\u0900-\u097F][A-Za-z\u0900-\u097F.\s]{1,40}?(?:\s*\([^)\n]{1,30}\))?(?=[,\n;]|$|\.(?=\s|$)|\s+(?:reviewed|advised|seen|on|for|at|in|ka|ki|ने|द्वारा)\b)"
+    r"(?i)\b(?:Dr|Prof|Doctor|Consultant|Physician)\.?\s*[:=-]?\s*(?:Dr\.?\s*)?[A-Z\u0900-\u097F][A-Za-z\u0900-\u097F.\s]{1,40}?(?:\s*\([^)\n]{1,30}\))?(?=[,\n;]|$|\.(?=\s|$)|\s+(?:reviewed|advised|seen|examined|on|for|at|in|ka|ki|ने|द्वारा)\b)"
+    r"|\b(?:Dr|Prof)\.?\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){0,2}"
     r"|डॉ\.?\s*[\u0900-\u097F]{2,25}(?:\s+[\u0900-\u097F]{2,25})?"
 )
 _HOSPITAL_RE = re.compile(
@@ -153,7 +154,7 @@ _ID_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("INSURANCE_ID", re.compile(r"(?i)\b(?:Insurance\s*ID|Policy\s*No\.?|Claim\s*ID|TPA\s*ID|PMJAY|Ayushman)\s*[:#/-]\s*([A-Z0-9][A-Z0-9/_-]{3,24})")),
     ("DOB", re.compile(r"(?i)\b(?:DOB|D\.O\.B|Date\s+of\s+Birth|Birth\s+Date|जन्म\s*तिथि)\s*[:=-]\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})")),
     ("HOUSE", re.compile(r"(?i)(?:\bH\.?\s*No\.?|\bHouse\s*No\.?|मकान\s*नं\.?)\s*[:#-]?\s*[A-Za-z0-9/-]{1,12}|\b\d{1,4}(?:/\d{1,3})?(?=\s*,\s*(?:Ward|Mohalla|\[LOCALITY\]|\[HOUSE\]|Near|\[LANDMARK\]))")),
-    ("PIN", re.compile(r"(?i)\b(?:PIN|Pin\s*Code|Pincode|पिन)\s*[:=-]?\s*([1-9]\d{5})\b|(?:[,-]\s*|\b(?:UP|MP|MH|DL|KA|TN|RJ|GJ|WB|BR|AP|TS|KL|PB|HR|UK|HP|JH|CG|OR|AS)\s+)([1-9]\d{5})\b")),
+    ("PIN", re.compile(r"(?i)\b(?:PIN|Pin\s*Code|Pincode|पिन)\s*[:=-]?\s*([1-9]\d{5})\b|(?:,\s*|-\s+|\b(?:UP|MP|MH|DL|KA|TN|RJ|GJ|WB|BR|AP|TS|KL|PB|HR|UK|HP|JH|CG|OR|AS)\s+)([1-9]\d{5})\b")),
 ]
 
 _NAME_LABEL_RE = re.compile(
@@ -223,6 +224,7 @@ def _apply_replacements(text: str, edits: list[tuple[int, int, str]]) -> tuple[s
 
 _ALIAS_STOPWORDS = {
     "kumar", "kumari", "devi", "lal", "singh", "sharma", "verma", "gupta", "yadav",
+    "asha", "anm", "opd", "ipd", "uhid", "mrn", "icu", "ccu", "nicu",
     "patient", "doctor", "hospital", "clinic", "ward", "tablet", "capsule", "syrup",
     "fever", "pain", "cough", "cold", "blood", "pressure", "pulse", "sugar", "normal",
     "stable", "review", "follow", "discharge", "admit", "admitted", "note", "notes",
@@ -354,6 +356,10 @@ def redact_free_text(
         pat_rx = alias_index.full_patient_rx if full_aliases_only else alias_index.patient_rx
         if pat_rx is not None:
             for m in pat_rx.finditer(norm_text):
+                matched = m.group(0)
+                # Do not redact ALL-CAPS acronyms (e.g. ASHA, OPD) as single-word patient aliases
+                if " " not in matched and "_" not in matched and "-" not in matched and matched.isupper() and len(matched) <= 6:
+                    continue
                 if not _overlaps(m.start(), m.end(), protected):
                     edits.append((m.start(), m.end(), "[PATIENT_NAME]"))
         if not full_aliases_only and alias_index.relative_rx is not None:

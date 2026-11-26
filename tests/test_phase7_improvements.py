@@ -111,6 +111,35 @@ class Phase7ImprovementTests(unittest.TestCase):
             self.assertIn("Dr. Kulkarni", san_note)
             self.assertIn("Dolo 650", san_note)
 
+    def test_clinical_terms_not_corrupted_by_alias_pin_or_base64(self) -> None:
+        idx = AliasIndex()
+        idx.add("Asha Devi", is_relative=False)
+        idx.add("Ramesh Verma", is_relative=False)
+        idx.compile()
+        txt = "Referred by ASHA worker; Platelets: 150000-410000; Dr. Ramesh Srivastava (MD Medicine) examined."
+        cleaned, _ = redact_free_text(txt, alias_index=idx)
+        self.assertIn("ASHA worker", cleaned)
+        self.assertIn("150000-410000", cleaned)
+        self.assertIn("Dr. Ramesh Srivastava (MD Medicine)", cleaned)
+
+        from rakshak.ingest import process_json_or_fhir
+        from rakshak.sanitize import Sanitizer
+        j_in = json.dumps({"diagnosis": "SevereAcuteRespiratorySyndrome", "note": "Normal"})
+        j_out, _ = process_json_or_fhir(j_in, Sanitizer(), "lab.json")
+        self.assertIn("SevereAcuteRespiratorySyndrome", j_out)
+
+    def test_ambiguous_shared_household_phone_without_mrn_abstains(self) -> None:
+        f0 = IdentityFeatures(
+            record_idx=0, out_rel="alpha.tsv", loc="row:0", hospital="alpha",
+            phones={"9800445566"}, name_tokens=["rohan", "awasthi"], age=25, gender="M",
+        )
+        f1 = IdentityFeatures(
+            record_idx=1, out_rel="alpha.tsv", loc="row:1", hospital="alpha",
+            phones={"9800445566"}, name_tokens=["rohan", "awasthi"], age=25, gender="M",
+        )
+        res = link_and_pseudonymize([f0, f1], b"test-secret")
+        self.assertNotEqual(res[0], res[1])
+
 
 if __name__ == "__main__":
     unittest.main()

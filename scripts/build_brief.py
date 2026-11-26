@@ -69,10 +69,10 @@ PAGE2_HTML = """
 <h2>5. Privacy&ndash;Utility Trade-Off (Measured Results)</h2>
 <table>
   <tr><th>Measure (Practice Data, 200 files / 817 records)</th><th>Measured Value</th></tr>
-  <tr><td>Personal data leaked (overall / Latin / Devanagari / Hinglish)</td><td><b>2.2%</b> (70/3,230) / <b>2.2%</b> / <b>0.7%</b> / <b>2.7%</b></td></tr>
+  <tr><td>Personal data leaked (overall / Latin / Devanagari / Hinglish)</td><td><b>2.2%</b> (71/3,230) / <b>2.2%</b> / <b>0.7%</b> / <b>3.6%</b></td></tr>
   <tr><td>Planted canaries leaked / Unparsed raw copies</td><td><b>0 / 4</b> canaries / <b>0</b> raw copies (<b>7</b> quarantined)</td></tr>
-  <tr><td>Medical values kept (clinicians, drugs, doses, vitals, diagnoses)</td><td><b>98.2%</b> (3,812 / 3,880)</td></tr>
-  <tr><td>Patient linking (Practice / 36-Household Hard Benchmark)</td><td><b>1.00</b> prec, <b>0.51</b> rec / <b>1.00</b> prec, <b>0</b> of 36 mixed households</td></tr>
+  <tr><td>Medical values kept (clinicians, drugs, doses, vitals, diagnoses)</td><td><b>98.3%</b> (3,815 / 3,880; 61 rare-district coarsenings)</td></tr>
+  <tr><td>Patient linking (Practice / 36-Household Hard Benchmark)</td><td><b>1.00</b> prec, <b>0.50</b> rec / <b>1.00</b> prec, <b>0</b> of 36 mixed households</td></tr>
   <tr><td>Age-band accuracy &amp; Multi-date output-cluster offsets</td><td><b>0 / 464</b> errors (5 unresolved); <b>0 / 70</b> cluster offset violations</td></tr>
   <tr><td>Hospital stay (Length-of-Stay) preservation</td><td><b>325 / 325</b> checked stays preserved (<b>0</b> violations, <b>1</b> unresolved)</td></tr>
   <tr><td>Person-level privacy proxy (46 truth people; 103/721 units complete)</td><td>Size-1 groups reduced <b>46 -&gt; 28</b>; &lt;3 groups reduced <b>46 -&gt; 40</b></td></tr>

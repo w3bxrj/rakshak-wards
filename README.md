@@ -57,13 +57,15 @@ Output: sanitized/ + report.json + records.jsonl
 
 | Benchmark | Metric | Measured Value |
 | :--- | :--- | :--- |
-| **Practice (`dev/input`, 200 files)** | PII leaked (`check_dev.py`) | **`70 / 3,230` (`2.2%` overall; `2.2%` Latin, `0.7%` Deva, `2.7%` Hinglish)** (baseline: `235 / 3,230`, `7.3%`) |
+| **Practice (`dev/input`, 200 files)** | PII leaked (`check_dev.py`) | **`71 / 3,230` (`2.2%` overall; `2.2%` Latin, `0.7%` Deva, `3.6%` Hinglish)** (baseline `b3ac927`: `235 / 3,230`, `7.3%`) |
 | **Practice (`dev/input`)** | Canaries leaked / Raw copies | `0 / 4` canaries / `0` raw copies (`7` quarantined) |
-| **Practice (`dev/input`)** | Medical values kept | `3,812 / 3,880` (`98.2%`) |
-| **Practice (`dev/input`)** | Linkage (Precision / Recall / F0.5 / Wrong merges) | `1.00 / 0.51 / 0.84 / 0` |
+| **Practice (`dev/input`)** | Medical values kept | `3,815 / 3,880` (`98.3%`; `61` district coarsenings for `k < 3` privacy) |
+| **Practice (`dev/input`)** | Linkage (Precision / Recall / F0.5 / Wrong merges) | `1.00 / 0.50 / 0.83 / 0` |
 | **Practice (`dev/input`)** | Age bands & Stay lengths (LoS) | `0 / 464` age-band errors (`5` unresolved); `0 / 325` LoS violations (`1` unresolved); `0 / 70` cluster offset violations |
 | **Practice (`dev/input`)** | Person-level privacy proxy (`46` truth people; `103 / 721` units complete) | Size-1 groups: **`46 → 28`**; `< 3` groups: **`46 → 40`** |
-| **36-Household Hard Benchmark (216 visits)** | Precision / Recall / Mixed households | **`1.00 / 0.67 / 0 of 36`** (baseline: `0.40 / 1.00 / 36 of 36`) |
+| **36-Household Hard (`seed=391870`, 216 visits)** | `base` (shared phone + local MRNs) | **`TP 72 / FP 0 / Mixed HH 0 of 36 / Prec 1.00 / Rec 0.33`** (baseline: `324 FP`, `36/36 mixed`) |
+| **36-Household Hard (`seed=391870`)** | `distinct_phones` / `both_removed` / `no_mrns` | `distinct_phones`: `1.00/1.00 (0 mixed)`; `both_removed`: `1.00/1.00 (0 mixed)`; `no_mrns`: **`0 FP, 0/36 mixed`** |
+| **Held-Out Cohort (`seed=884422`, 4 files / 5 recs)** | Leaks / Medical kept / Contract | **`0` PII leaks / `10 / 10` medical kept / `CONTRACT OK`** |
 | **Standard-Scale Stress Test (820 files, 6,100 recs)** | Elapsed time / Peak RSS (Windows host) | `78.03s` wall (`77.81s` reported) / `50.28 MB` |
 
 *(Official automated attacker risk `A1`–`A7` and hidden-dataset scores are unmeasured locally.)*

@@ -167,9 +167,14 @@ def _sanitize_json_node(
             used.add(clean_k)
             key_map[k] = clean_k
             low = k.strip().casefold()
-            if (is_attachment_key(k) and looks_like_encoded_attachment(v)) or (
-                isinstance(v, str) and (v.strip().startswith("data:") or is_valid_b64_payload(v.strip()))
-            ):
+            s_val = v.strip() if isinstance(v, str) else ""
+            is_nonkey_b64 = bool(
+                s_val and (
+                    s_val.startswith("data:")
+                    or (len(s_val) >= 32 and any(c.isdigit() or c in "+/=" for c in s_val) and is_valid_b64_payload(s_val))
+                )
+            )
+            if (is_attachment_key(k) and looks_like_encoded_attachment(v)) or is_nonkey_b64:
                 is_json, parsed = decode_b64_json(v)
                 if is_json:
                     import base64

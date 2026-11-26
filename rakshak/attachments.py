@@ -29,7 +29,7 @@ def is_valid_b64_payload(token: str) -> bool:
         decoded = raw.decode("utf-8")
         return any(ch in decoded for ch in (" ", "\n", ":", "{", "<"))
     except UnicodeDecodeError:
-        return True
+        return not token.isalpha()
 
 
 def looks_like_encoded_attachment(value: object) -> bool:

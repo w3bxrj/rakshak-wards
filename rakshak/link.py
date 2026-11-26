@@ -376,11 +376,47 @@ def link_score(a: IdentityFeatures, b: IdentityFeatures) -> float:
     return 0.0
 
 
+def _find_ambiguous_phones(features: list[IdentityFeatures]) -> set[str]:
+    """Identify phones shared across multiple distinct names or repeated in the same file without IDs."""
+    by_phone: dict[str, list[IdentityFeatures]] = {}
+    for f in features:
+        for ph in f.phones:
+            by_phone.setdefault(ph, []).append(f)
+
+    ambiguous: set[str] = set()
+    for ph, feats in by_phone.items():
+        if len(feats) < 2:
+            continue
+        # 1. Phone shared across incompatible names
+        named = [f for f in feats if f.name_tokens]
+        if len(named) >= 2:
+            base_tokens = named[0].name_tokens
+            if any(name_similarity(base_tokens, other.name_tokens) < 0.90 for other in named[1:]):
+                ambiguous.add(ph)
+                continue
+        # 2. Phone appears >= 2 times in the same file without identical strong ID or MRN
+        by_file: dict[str, list[IdentityFeatures]] = {}
+        for f in feats:
+            by_file.setdefault(f.out_rel, []).append(f)
+        for file_feats in by_file.values():
+            if len(file_feats) >= 2:
+                # Check if they lack a common strong ID or MRN
+                has_common_id = all(
+                    (file_feats[0].strong_ids & other.strong_ids) or (file_feats[0].scoped_mrns & other.scoped_mrns)
+                    for other in file_feats[1:]
+                )
+                if not has_common_id:
+                    ambiguous.add(ph)
+                    break
+    return ambiguous
+
+
 def link_and_pseudonymize(
     features: list[IdentityFeatures], secret: bytes
 ) -> dict[int, str | None]:
     """Cluster records conservatively with whole-cluster conflict checks and assign HMAC pseudonyms."""
     n = len(features)
+    ambiguous_phones = _find_ambiguous_phones(features)
     # Build candidate edges
     edges: list[tuple[float, str, str, int, int]] = []
     for i in range(n):
@@ -392,6 +428,15 @@ def link_and_pseudonymize(
             if not fj.has_identity_anchor():
                 continue
             sc = link_score(fi, fj)
+            if 0.0 < sc < 8.5:
+                shared_ph = fi.phones & fj.phones
+                if shared_ph and shared_ph.issubset(ambiguous_phones):
+                    has_distinguishing = (
+                        (fi.dob and fj.dob and fi.dob == fj.dob)
+                        or (fi.rel_tokens and fj.rel_tokens and name_similarity(fi.rel_tokens, fj.rel_tokens) >= 0.70)
+                    )
+                    if not has_distinguishing:
+                        continue
             if sc > 0.0:
                 s_i, s_j = fi.canonical_signature(), fj.canonical_signature()
                 lo, hi = (s_i, s_j) if s_i <= s_j else (s_j, s_i)
