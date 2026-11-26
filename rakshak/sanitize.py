@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from rakshak.attachments import strip_opaque_attachments_text
 from rakshak.detect import (
+    AliasIndex,
     classify_field_name,
     redact_free_text,
     redact_structured_value,
@@ -26,7 +27,7 @@ _PATH_PII_SEG_RE = re.compile(
     r"(?<=[\\/])([A-Z][a-z]+(?:_[A-Z][a-z]+)+_\d{4,8}|[A-Z][a-z]+_[A-Z][a-z]+)(?=[\\/]|$)"
 )
 _FILENAME_NAME_RE = re.compile(r"(?<![A-Za-z])([A-Z][a-z]+[_-][A-Z][a-z]+(?:[_-]\d{4,8})?)(?![A-Za-z])")
-_FILENAME_MRN_RE = re.compile(r"(?<![A-Za-z0-9])(?:[A-Z]{2,6}[_-]\d{2,4}[_-][A-Z0-9_-]{3,12}|[A-Z]{2,6}[_-]\d{4,10}|\d{5,8})(?![A-Za-z0-9])")
+_FILENAME_MRN_RE = re.compile(r"(?i)(?<![A-Za-z0-9])(?:[A-Za-z]{2,6}[_-]\d{2,4}[_-][A-Za-z0-9_-]{3,12}|[A-Za-z]{2,6}[_-](?!20[12]\d(?![0-9]))\d{4,10}|[A-Za-z]{2,6}\d{5,10}|\d{5,8})(?![A-Za-z0-9])")
 
 
 @dataclass
@@ -42,6 +43,7 @@ class Sanitizer:
     """Single entry point where Phase 3 detection hooks into every channel."""
 
     stats: SanitizationStats = field(default_factory=SanitizationStats)
+    alias_index: AliasIndex | None = None
 
     def sanitize_text(self, text: str, channel: str = "content") -> str:
         """Sanitize free text, metadata, or narratives while stripping opaque base64."""
@@ -50,7 +52,8 @@ class Sanitizer:
         cleaned, n_att = strip_opaque_attachments_text(text)
         self.stats.attachments_removed += n_att
         self.stats.identifiers_detected += n_att
-        cleaned, n_det = redact_free_text(cleaned)
+        full_only = channel in {"filename", "dirname", "header", "key"}
+        cleaned, n_det = redact_free_text(cleaned, alias_index=self.alias_index, full_aliases_only=full_only)
         self.stats.identifiers_detected += n_det
         return cleaned
 
@@ -61,7 +64,7 @@ class Sanitizer:
         cleaned, n_att = strip_opaque_attachments_text(value)
         self.stats.attachments_removed += n_att
         self.stats.identifiers_detected += n_att
-        cleaned, n_det = redact_structured_value(field_name, cleaned)
+        cleaned, n_det = redact_structured_value(field_name, cleaned, alias_index=self.alias_index)
         self.stats.identifiers_detected += n_det
         return cleaned
 
@@ -100,11 +103,13 @@ class Sanitizer:
         return cleaned
 
     def sanitize_metadata(self, value: str) -> str:
-        """Sanitize metadata string fields including embedded export file paths."""
+        """Sanitize metadata string fields including embedded export file paths and titles."""
         if not value:
             return value
         cleaned, n_path = _PATH_PII_SEG_RE.subn("[PATIENT_NAME]", value)
-        self.stats.identifiers_detected += n_path
+        cleaned, n1 = _FILENAME_MRN_RE.subn("[MRN]", cleaned)
+        cleaned, n2 = _FILENAME_NAME_RE.subn("[PATIENT_NAME]", cleaned)
+        self.stats.identifiers_detected += n_path + n1 + n2
         return self.sanitize_text(cleaned, channel="metadata")
 
     def sanitize_fhir_narrative(self, div_html: str) -> str:

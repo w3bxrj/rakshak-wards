@@ -9,6 +9,7 @@ from rakshak.detect import (
     _BEFORE_VITALS_OR_AGE_RE,
     _HONORIFIC_NAME_RE,
     _NAME_LABEL_RE,
+    classify_field_name,
     normalize_digits,
     transliterate_deva,
 )
@@ -173,6 +174,8 @@ class IdentityFeatures:
     age: int | None = None
     dob: str | None = None
     pin: str | None = None
+    district: str | None = None
+    has_deva: bool = False
 
     def has_identity_anchor(self) -> bool:
         return bool(self.strong_ids or self.scoped_mrns or self.phones or self.name_tokens)
@@ -201,6 +204,7 @@ def extract_features_from_text(
         out_rel=out_rel,
         loc=loc,
         hospital=infer_hospital(out_rel, text),
+        has_deva=bool(re.search(r"[\u0900-\u097F]", text)),
     )
     norm = normalize_digits(text)
 
@@ -253,7 +257,8 @@ def extract_features_from_text(
             if not v or v.strip().casefold() in _PLACEHOLDERS:
                 continue
             kl = k.strip().casefold()
-            if kl in {"patient_name", "name", "full_name", "first_name", "fname", "pt_name"} and not feat.name_tokens:
+            ftag = classify_field_name(k)
+            if (ftag == "PATIENT_NAME" or kl in {"patient_name", "name", "full_name", "first_name", "fname", "pt_name"}) and not feat.name_tokens:
                 feat.name_tokens = _clean_tokens(v)
             elif kl in {"last_name", "lname", "surname"}:
                 feat.name_tokens.extend(_clean_tokens(v))
@@ -265,13 +270,15 @@ def extract_features_from_text(
                 m_age = re.search(r"\d{1,3}", normalize_digits(v))
                 if m_age and 0 <= int(m_age.group(0)) <= 120:
                     feat.age = int(m_age.group(0))
-            elif kl in {"dob", "birth_date", "date_of_birth", "birthdate"} and not feat.dob:
+            elif (ftag == "DOB" or kl in {"dob", "birth_date", "date_of_birth", "birthdate"}) and not feat.dob:
                 feat.dob = _normalize_dob(v)
-            elif kl in {"pin", "pincode", "pin_code"} and not feat.pin:
+            elif (ftag == "PIN" or kl in {"pin", "pincode", "pin_code"}) and not feat.pin:
                 m_pin = re.search(r"[1-9]\d{5}", normalize_digits(v))
                 if m_pin:
                     feat.pin = m_pin.group(0)
-            elif kl in {"mrn", "uhid", "ipd_no", "opd_no", "reg_no", "patient_id"}:
+            elif kl in {"district", "dist", "distt"} and not feat.district:
+                feat.district = v.strip().casefold()
+            elif ftag == "MRN" or kl in {"mrn", "uhid", "ipd_no", "opd_no", "reg_no", "patient_id"}:
                 raw_mrn = normalize_digits(v).strip()
                 mrn_clean = re.sub(r"[^A-Z0-9]", "", raw_mrn.upper())
                 if len(mrn_clean) >= 4:
@@ -293,6 +300,14 @@ def has_hard_conflict(a: IdentityFeatures, b: IdentityFeatures) -> bool:
         a_ids = {v for t, v in a.strong_ids if t == id_type}
         b_ids = {v for t, v in b.strong_ids if t == id_type}
         if a_ids and b_ids and not (a_ids & b_ids):
+            return True
+    # Conflicting local MRNs from the same non-generic issuer/hospital
+    a_issuers = {h for h, _ in a.scoped_mrns if h != "generic"}
+    b_issuers = {h for h, _ in b.scoped_mrns if h != "generic"}
+    for issuer in a_issuers & b_issuers:
+        a_mrns = {m for h, m in a.scoped_mrns if h == issuer}
+        b_mrns = {m for h, m in b.scoped_mrns if h == issuer}
+        if a_mrns and b_mrns and not (a_mrns & b_mrns):
             return True
     # Conflicting names when both are present
     if a.name_tokens and b.name_tokens and name_similarity(a.name_tokens, b.name_tokens) < 0.45:
@@ -323,26 +338,40 @@ def link_score(a: IdentityFeatures, b: IdentityFeatures) -> float:
     # Tier 2a: Shared phone + compatible name (or corroborated demographics)
     if shared_phone:
         if a.name_tokens and b.name_tokens and nsim >= 0.60:
-            return 7.0 + nsim
+            # Same-script Latin near-names (e.g. Ramesh vs Ramesha) sharing a household phone
+            # need exact token match, initials, or DOB/relative corroboration.
+            is_cross_script = a.has_deva != b.has_deva
+            has_initial = any(len(t) == 1 for t in a.name_tokens + b.name_tokens)
+            has_distinguishing = (
+                (a.dob and b.dob and a.dob == b.dob)
+                or (a.rel_tokens and b.rel_tokens and name_similarity(a.rel_tokens, b.rel_tokens) >= 0.70)
+            )
+            if a.name_tokens == b.name_tokens:
+                return 8.0
+            if is_cross_script or has_initial or has_distinguishing:
+                return 7.0 + nsim * 0.9
+            return 0.0
         if (not a.name_tokens or not b.name_tokens) and (
             (a.age is not None and b.age is not None and abs(a.age - b.age) <= 2)
             or (a.dob and b.dob and a.dob == b.dob)
         ):
             return 6.0
 
-    # Tier 2b: Strong cross-script / phonetic multi-token name match + corroborating signal
-    if nsim >= 0.75 and len(a.name_tokens) >= 2 and len(b.name_tokens) >= 2:
+    # Tier 2b: No shared strong ID, MRN, or phone.
+    # Disjoint phones without a shared ID/MRN must not merge on name+age alone.
+    if a.phones and b.phones and not shared_phone:
+        return 0.0
+
+    # Strong cross-script / phonetic multi-token name match + distinguishing corroboration (DOB or relative)
+    if nsim >= 0.80 and len(a.name_tokens) >= 2 and len(b.name_tokens) >= 2:
         corroborations = 0
         if a.dob and b.dob and a.dob == b.dob:
             corroborations += 2
-        if a.rel_tokens and b.rel_tokens and name_similarity(a.rel_tokens, b.rel_tokens) >= 0.65:
+        if a.rel_tokens and b.rel_tokens and name_similarity(a.rel_tokens, b.rel_tokens) >= 0.75:
             corroborations += 2
-        if a.age is not None and b.age is not None and abs(a.age - b.age) <= 2:
-            corroborations += 1
-        if a.pin and b.pin and a.pin == b.pin:
-            corroborations += 1
-        if corroborations >= 2 or (corroborations >= 1 and nsim >= 0.85):
-            return 5.0 + nsim + 0.2 * corroborations
+        if corroborations >= 2:
+            bonus = 0.2 if (a.age is not None and b.age is not None and abs(a.age - b.age) <= 2) else 0.0
+            return 5.0 + nsim + bonus
 
     return 0.0
 
@@ -374,15 +403,61 @@ def link_and_pseudonymize(
     clusters: dict[int, list[int]] = {i: [i] for i in range(n)}
     owner: dict[int, int] = {i: i for i in range(n)}
 
-    for _, _, _, i, j in edges:
+    # Pass 1: Merge high-confidence issuer/national-ID edges (>= 8.5) first
+    for neg_sc, _, _, i, j in edges:
+        if -neg_sc < 8.5:
+            continue
         ci, cj = owner[i], owner[j]
         if ci == cj:
             continue
         members_i, members_j = clusters[ci], clusters[cj]
-        # Whole-cluster conflict check: every cross-pair must be conflict-free
         if any(has_hard_conflict(features[u], features[v]) for u in members_i for v in members_j):
             continue
-        # Merge cj into ci
+        for v in members_j:
+            owner[v] = ci
+        members_i.extend(members_j)
+        del clusters[cj]
+
+    # Build cluster-level candidate scores for remaining Tier 2 edges (< 8.5)
+    # so we can detect competing, mutually-incompatible candidate clusters.
+    cluster_best: dict[tuple[int, int], float] = {}
+    for neg_sc, _, _, i, j in edges:
+        sc = -neg_sc
+        if sc >= 8.5:
+            continue
+        ci, cj = owner[i], owner[j]
+        if ci == cj:
+            continue
+        members_i, members_j = clusters[ci], clusters[cj]
+        if any(has_hard_conflict(features[u], features[v]) for u in members_i for v in members_j):
+            continue
+        pair = (ci, cj) if ci < cj else (cj, ci)
+        if sc > cluster_best.get(pair, 0.0):
+            cluster_best[pair] = sc
+
+    def _has_competing_candidate(src_c: int, dst_c: int, sc: float) -> bool:
+        for (a_c, b_c), alt_sc in cluster_best.items():
+            other = b_c if a_c == src_c else (a_c if b_c == src_c else None)
+            if other is None or other == dst_c or other not in clusters:
+                continue
+            if alt_sc >= sc - 0.5:
+                if any(has_hard_conflict(features[u], features[v]) for u in clusters[dst_c] for v in clusters[other]):
+                    return True
+        return False
+
+    # Pass 2: Merge Tier 2 edges only when neither side has a competing incompatible cluster
+    for neg_sc, _, _, i, j in edges:
+        sc = -neg_sc
+        if sc >= 8.5:
+            continue
+        ci, cj = owner[i], owner[j]
+        if ci == cj:
+            continue
+        members_i, members_j = clusters[ci], clusters[cj]
+        if any(has_hard_conflict(features[u], features[v]) for u in members_i for v in members_j):
+            continue
+        if _has_competing_candidate(ci, cj, sc) or _has_competing_candidate(cj, ci, sc):
+            continue
         for v in members_j:
             owner[v] = ci
         members_i.extend(members_j)

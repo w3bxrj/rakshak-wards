@@ -57,19 +57,18 @@ Output: sanitized/ + report.json + records.jsonl
 
 | Benchmark | Metric | Measured Value |
 | :--- | :--- | :--- |
-| **Practice (`dev/input`, LF, 200 files)** | PII leaked (`check_dev.py`) | `283 / 3230` (`8.8%` overall; `8.3%` Latin, `1.4%` Deva, `29.7%` Hinglish) |
-| **Practice (`dev/input`, LF)** | Canaries leaked / Raw copies | `0 / 4` canaries / `0` raw copies (`7` quarantined) |
-| **Practice (`dev/input`, LF)** | Medical values kept | `4,854 / 4,855` (`100.0%`) |
-| **Practice (`dev/input`, LF)** | Linkage (Precision / Recall / F0.5 / Wrong merges) | `1.00 / 0.54 / 0.85 / 0` |
-| **Practice (`dev/input`, LF)** | Age bands | `0 / 527` errors (`24` unresolved; `1` invalid negative source age `-2` excluded) |
-| **Practice (`dev/input`, LF)** | Hospital stays (LoS) & cluster date offsets | `337 / 339` checked stays preserved (`2` changed, `1` unresolved); `0 / 90` multi-date output-cluster offset violations |
-| **Practice (`dev/input`, LF)** | Person-level privacy proxy (`46 / 48` truth people; `103 / 815` units with complete age+gender+district; `712` skipped) | Size-1 groups: **`46 → 35`**; `< 3` groups: **`46 → 43`** |
-| **Standard-Scale Stress Test (820 files, 6,100 recs)** | Elapsed time / Peak RSS (unthrottled Windows host) | `23.65s` wall (`23.43s` reported) / `43.71 MB` |
+| **Practice (`dev/input`, 200 files)** | PII leaked (`check_dev.py`) | **`70 / 3,230` (`2.2%` overall; `2.2%` Latin, `0.7%` Deva, `2.7%` Hinglish)** (baseline: `235 / 3,230`, `7.3%`) |
+| **Practice (`dev/input`)** | Canaries leaked / Raw copies | `0 / 4` canaries / `0` raw copies (`7` quarantined) |
+| **Practice (`dev/input`)** | Medical values kept | `3,812 / 3,880` (`98.2%`) |
+| **Practice (`dev/input`)** | Linkage (Precision / Recall / F0.5 / Wrong merges) | `1.00 / 0.51 / 0.84 / 0` |
+| **Practice (`dev/input`)** | Age bands & Stay lengths (LoS) | `0 / 464` age-band errors (`5` unresolved); `0 / 325` LoS violations (`1` unresolved); `0 / 70` cluster offset violations |
+| **Practice (`dev/input`)** | Person-level privacy proxy (`46` truth people; `103 / 721` units complete) | Size-1 groups: **`46 → 28`**; `< 3` groups: **`46 → 40`** |
+| **36-Household Hard Benchmark (216 visits)** | Precision / Recall / Mixed households | **`1.00 / 0.67 / 0 of 36`** (baseline: `0.40 / 1.00 / 36 of 36`) |
+| **Standard-Scale Stress Test (820 files, 6,100 recs)** | Elapsed time / Peak RSS (Windows host) | `78.03s` wall (`77.81s` reported) / `50.28 MB` |
 
 *(Official automated attacker risk `A1`–`A7` and hidden-dataset scores are unmeasured locally.)*
 
 ## Known Limitations
 
-* Unlabeled Hinglish/Latin free-text names and village/PIN fragments without structural anchors still account for the remaining `8.8%` leak tail.
-* `2 / 339` checked hospital stays changed length (with `1` additional eligible stay unresolved) on ambiguous mixed-format dates.
-* The person-level privacy proxy covers `46` distinct truth people across `103` units with complete `(age, gender, district)` truth annotations (`712` units lack one or more fields); official attacker risk (`A1`–`A7`) remains unmeasured locally.
+* Remaining `2.2%` leak tail on `dev/input` is concentrated in filename MRNs (`31 / 850`) and unlabeled village/name fragments without structural anchors.
+* `5 / 469` age-band checks and `1 / 326` stay-length checks remain unresolved in `audit_dev.py`; official attacker risk (`A1`–`A7`) remains unmeasured locally.

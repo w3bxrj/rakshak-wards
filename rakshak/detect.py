@@ -55,12 +55,12 @@ _EPONYM_RE = re.compile(
 )
 
 # --------------------------------------------------------------------------- structured column/key classification
-_NON_PATIENT_COL_HINTS = (
-    "doctor", "dr_", "clinician", "physician", "consultant", "ward", "hospital",
+_NON_PATIENT_COL_HINTS = {
+    "doctor", "dr", "clinician", "physician", "consultant", "ward", "hospital",
     "drug", "medicine", "dose", "dosage", "freq", "diagnosis", "dx", "icd",
-    "lab", "test", "result", "unit", "range", "vital", "date", "visit_date",
+    "lab", "test", "result", "unit", "range", "vital", "date", "visit",
     "admission", "discharge", "age", "gender", "sex", "district", "tehsil", "state",
-)
+}
 
 _COL_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("PATIENT_NAME", re.compile(r"(?i)^(?:patient[_\s-]*name|pt[_\s-]*(?:full[_\s-]*)?name|pt_nm|pt_full_nm|full[_\s-]*name|first[_\s-]*name|last[_\s-]*name|fname|lname|given[_\s-]*name|family[_\s-]*name|surname|name|naam|rogi[_\s-]*ka[_\s-]*naam)$")),
@@ -76,7 +76,7 @@ _COL_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("HOUSE", re.compile(r"(?i)^(?:house|h[_\s.]*no|house[_\s-]*no|flat[_\s-]*no|plot[_\s-]*no|makan)$")),
     ("LOCALITY", re.compile(r"(?i)^(?:locality|mohalla|colony|sector|nagar|street|gali|address|pata)$")),
     ("LANDMARK", re.compile(r"(?i)^(?:landmark|near)$")),
-    ("VILLAGE", re.compile(r"(?i)^(?:village|vill|gram|gaav|gaon|gram[_\s-]*panchayat)$")),
+    ("VILLAGE", re.compile(r"(?i)^(?:village|vill|gram|gaav|gaon|gram[_\s-]*panchayat|village[_\s/-]*mohalla)$")),
     ("PIN", re.compile(r"(?i)^(?:pin|pincode|pin[_\s-]*code|postal[_\s-]*code|zip)$")),
 ]
 
@@ -90,7 +90,8 @@ def classify_field_name(field_name: str) -> str | None:
             return tag
 
     low = norm_compact.casefold()
-    if not any(h in low for h in _NON_PATIENT_COL_HINTS):
+    low_tokens = set(re.split(r"[^a-z0-9]+", low)) - {""}
+    if not (low_tokens & _NON_PATIENT_COL_HINTS):
         if "abha" in low:
             return "ABHA_NUMBER"
         if "aadha" in low or "aadhar" in low:
@@ -148,11 +149,11 @@ _ID_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("PAN", re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b")),
     ("MRN", re.compile(r"\b[A-Z]{2,5}[/-]\d{2,4}[/-][A-Z0-9-]{3,12}\b")),
     ("MRN", re.compile(r"\b[A-Z]{2,6}-\d{4,10}\b")),
-    ("MRN", re.compile(r"(?i)\b(?:UHID|MRN|IPD|OPD|Reg\.?\s*No\.?|Patient\s*ID|Case\s*No\.?|ID|पंजीकरण)\s*[:#/-]\s*([A-Z0-9][A-Z0-9/_-]{3,20})")),
+    ("MRN", re.compile(r"(?i)\b(?:UHID|MRN|IPD|OPD|Reg\.?\s*No\.?|Patient\s*ID|Case\s*No\.?|पंजीकरण)\s*[:#/\s-]\s*([A-Z0-9][A-Z0-9/_-]{3,20})")),
     ("INSURANCE_ID", re.compile(r"(?i)\b(?:Insurance\s*ID|Policy\s*No\.?|Claim\s*ID|TPA\s*ID|PMJAY|Ayushman)\s*[:#/-]\s*([A-Z0-9][A-Z0-9/_-]{3,24})")),
     ("DOB", re.compile(r"(?i)\b(?:DOB|D\.O\.B|Date\s+of\s+Birth|Birth\s+Date|जन्म\s*तिथि)\s*[:=-]\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})")),
     ("HOUSE", re.compile(r"(?i)(?:\bH\.?\s*No\.?|\bHouse\s*No\.?|मकान\s*नं\.?)\s*[:#-]?\s*[A-Za-z0-9/-]{1,12}|\b\d{1,4}(?:/\d{1,3})?(?=\s*,\s*(?:Ward|Mohalla|\[LOCALITY\]|\[HOUSE\]|Near|\[LANDMARK\]))")),
-    ("PIN", re.compile(r"(?i)\b(?:PIN|Pin\s*Code|Pincode|पिन)\s*[:=-]\s*([1-9]\d{5})\b|(?:,\s)([1-9]\d{5})\b")),
+    ("PIN", re.compile(r"(?i)\b(?:PIN|Pin\s*Code|Pincode|पिन)\s*[:=-]?\s*([1-9]\d{5})\b|(?:[,-]\s*|\b(?:UP|MP|MH|DL|KA|TN|RJ|GJ|WB|BR|AP|TS|KL|PB|HR|UK|HP|JH|CG|OR|AS)\s+)([1-9]\d{5})\b")),
 ]
 
 _NAME_LABEL_RE = re.compile(
@@ -170,14 +171,17 @@ _HONORIFIC_NAME_RE = re.compile(
     r"|([\u0900-\u097F]{2,20}(?:[ \t]+[\u0900-\u097F]{2,20}){0,2})[ \t]+(?:जी|साहब|दीदी|भाई)\b"
     r"|(?i:\b(?:Mr|Mrs|Ms|Miss|Smt|Shri|Sri|Kumari|Master|Baby)\.?[ \t]+)([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){0,2})\b"
     r"|(?:श्री|श्रीमती|सुश्री|कुमारी)[ \t]+([\u0900-\u097F]{2,20}(?:[ \t]+[\u0900-\u097F]{2,20}){0,2})"
-    r"|(?i:\b(?:called[ \t]+by|brought[ \t]+by|accompanied[ \t]+by|received[ \t]+from|attendant|informant|guardian)[ \t]*[:=-]?[ \t]*)([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){0,2})(?='s\b|[ \t]|[,\n]|$)"
+    r"|(?i:\b(?:called[ \t]+by|brought[ \t]+by|accompanied[ \t]+by|received[ \t]+from|attendant|informant|guardian|follow[- ]?up[ \t]+(?:of|for|with)|discharge[ \t]+summary[ \t]+(?:of|for))[ \t]*[:=-]?[ \t]*)([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){0,2})(?='s\b|[ \t]|[,\n.]|$)"
     r"|\b\d{1,2}:\d{2}[ \t]*[-–][ \t]*([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){0,2})\b"
     r"|\b([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){0,2})(?='s[ \t]+attendant\b)"
+    r"|(?i:\b(?:patient|pt\.?)[ \t]+)([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){1,2})\b"
+    r"|(?:^|(?<=\n)|(?<=;\s)|(?<=\.\s))([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){1,2})(?=[ \t]+(?:is|was|has|had|came|presented|admitted|discharged|referred|complaining)\b)"
 )
 _BEFORE_VITALS_OR_AGE_RE = re.compile(
-    r"(?:^|(?<=\n)|(?<=;\s)|(?<=\.\s))([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){0,2}|[\u0900-\u097F]{2,20}(?:\s+[\u0900-\u097F]{2,20}){1,2})\s+(?=(?:ka|ki|ke|को|का|की|के)\s+(?:BP|Temp|Pulse|SpO2|sugar|Hb|condition|\d+\s+दिन)\b|\d{1,3}\s*(?:/\s*[MF]|Y\s*/\s*[MF]|Yrs|वर्ष))"
-    r"|(?<=note\s)([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){1,2})(?=\s*,\s*(?:S/o|D/o|W/o)\b)"
-    r"|(?<=\d{4}\s)([\u0900-\u097F]{2,20}(?:\s+[\u0900-\u097F]{2,20}){1,2})(?=\s+को\s+\d+\s+दिन)"
+    r"(?:^|(?<=\n)|(?<=;\s)|(?<=\.\s))([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){0,2}|[\u0900-\u097F]{2,20}(?:[ \t]+[\u0900-\u097F]{2,20}){1,2})[ \t]+(?=(?:ka|ki|ke|ko|ne|se|को|का|की|के|ने)[ \t]+(?:BP|Temp|Pulse|SpO2|sugar|Hb|condition|admit|discharge|fever|bukhar|dard|pain|checkup|follow|review|tab|inj|dawai|बुखार|दर्द|\d+[ \t]+दिन)\b|\d{1,3}[ \t]*(?:/[ \t]*[MF]|Y[ \t]*/[ \t]*[MF]|Yrs|वर्ष))"
+    r"|(?<=note[ \t])([A-Z][a-z]{1,20}(?:[ \t]+[A-Z][a-z]{1,20}){1,2})(?=[ \t]*,[ \t]*(?:S/o|D/o|W/o)\b)"
+    r"|(?<=\d{4}[ \t])([\u0900-\u097F]{2,20}(?:[ \t]+[\u0900-\u097F]{2,20}){1,2})(?=[ \t]+को[ \t]+\d+[ \t]+दिन)"
+    r"|(?:^|(?<=\n)|(?<=;\s)|(?<=\.\s))([A-Z][a-z]{1,20}[ \t]+[A-Z][a-z]{1,20})(?=[ \t]*,[ \t]*\d{1,3}[ \t]*/[ \t]*[MF]\b)"
 )
 _ADDRESS_TAG_RE: list[tuple[str, re.Pattern[str]]] = [
     ("LOCALITY", re.compile(r"(?i)\b(?:Mohalla|Colony|Nagar|Gali)\s+[A-Za-z\u0900-\u097F0-9.\s]{2,35}?(?=[,\n;|]|$)|मोहल्ला\s+[\u0900-\u097F0-9.\s]{2,35}?(?=[,\n;|]|$)")),
@@ -217,7 +221,86 @@ def _apply_replacements(text: str, edits: list[tuple[int, int, str]]) -> tuple[s
     return "".join(out), count
 
 
-def redact_free_text(text: str) -> tuple[str, int]:
+_ALIAS_STOPWORDS = {
+    "kumar", "kumari", "devi", "lal", "singh", "sharma", "verma", "gupta", "yadav",
+    "patient", "doctor", "hospital", "clinic", "ward", "tablet", "capsule", "syrup",
+    "fever", "pain", "cough", "cold", "blood", "pressure", "pulse", "sugar", "normal",
+    "stable", "review", "follow", "discharge", "admit", "admitted", "note", "notes",
+    "report", "record", "visit", "male", "female", "year", "years", "days", "month",
+    "address", "village", "mohalla", "nagar", "colony", "district", "tehsil", "state",
+}
+
+
+class AliasIndex:
+    """Transient in-memory index of structured patient/relative names for narrative & hidden-channel redaction."""
+
+    def __init__(self) -> None:
+        self.patient_rx: re.Pattern[str] | None = None
+        self.relative_rx: re.Pattern[str] | None = None
+        self.full_patient_rx: re.Pattern[str] | None = None
+        self._patient_phrases: set[str] = set()
+        self._relative_phrases: set[str] = set()
+        self._full_patient_phrases: set[str] = set()
+
+    @staticmethod
+    def _expand_variants(raw: str) -> tuple[set[str], set[str]]:
+        all_v: set[str] = set()
+        full_v: set[str] = set()
+        s = re.sub(r"\s+", " ", raw.strip())
+        if len(s) < 3 or (s.startswith("[") and s.endswith("]")):
+            return all_v, full_v
+        lat = re.sub(r"\s+", " ", transliterate_deva(s)).strip()
+        for base in (s, lat):
+            if len(base) < 3:
+                continue
+            parts = [p.strip(".,") for p in base.split() if p.strip(".,")]
+            if len(parts) >= 2:
+                all_v.add(base)
+                full_v.add(base)
+                rev = f"{parts[-1]} {parts[0]}"
+                all_v.add(rev)
+                full_v.add(rev)
+                if len(parts[0]) >= 1:
+                    init1 = f"{parts[0][0]}. {parts[-1]}"
+                    init2 = f"{parts[0][0]} {parts[-1]}"
+                    all_v.update((init1, init2))
+                    full_v.update((init1, init2))
+                p0 = parts[0].casefold()
+                if p0 in {"mohammad", "muhammad", "mohd", "md"}:
+                    for v in ("Mohammad", "Muhammad", "Mohd", "Md.", "Md"):
+                        var = f"{v} {' '.join(parts[1:])}"
+                        all_v.add(var)
+                        full_v.add(var)
+            for p in parts:
+                if len(p) >= 4 and p.casefold() not in _ALIAS_STOPWORDS and not p.isdigit():
+                    all_v.add(p)
+        return {x for x in all_v if len(x) >= 3}, {x for x in full_v if len(x) >= 3}
+
+    def add(self, raw: str, is_relative: bool = False) -> None:
+        all_v, full_v = self._expand_variants(raw)
+        if is_relative:
+            self._relative_phrases.update(all_v)
+        else:
+            self._patient_phrases.update(all_v)
+            self._full_patient_phrases.update(full_v)
+
+    def compile(self) -> None:
+        for attr, phrases in (
+            ("patient_rx", self._patient_phrases),
+            ("relative_rx", self._relative_phrases),
+            ("full_patient_rx", self._full_patient_phrases),
+        ):
+            if not phrases:
+                setattr(self, attr, None)
+                continue
+            ordered = sorted(phrases, key=len, reverse=True)
+            pat = "|".join(re.escape(p).replace(r"\ ", r"[ \t_-]+") for p in ordered)
+            setattr(self, attr, re.compile(rf"(?i)(?<![A-Za-z0-9\u0900-\u097F])(?:{pat})(?![A-Za-z0-9\u0900-\u097F])"))
+
+
+def redact_free_text(
+    text: str, alias_index: AliasIndex | None = None, full_aliases_only: bool = False
+) -> tuple[str, int]:
     """Detect and redact multilingual PII in free text while protecting clinical spans."""
     if not text:
         return text, 0
@@ -267,10 +350,23 @@ def redact_free_text(text: str) -> tuple[str, int]:
             if not _overlaps(s, e, protected):
                 edits.append((s, e, "[PATIENT_NAME]"))
 
+    if alias_index is not None:
+        pat_rx = alias_index.full_patient_rx if full_aliases_only else alias_index.patient_rx
+        if pat_rx is not None:
+            for m in pat_rx.finditer(norm_text):
+                if not _overlaps(m.start(), m.end(), protected):
+                    edits.append((m.start(), m.end(), "[PATIENT_NAME]"))
+        if not full_aliases_only and alias_index.relative_rx is not None:
+            for m in alias_index.relative_rx.finditer(norm_text):
+                if not _overlaps(m.start(), m.end(), protected):
+                    edits.append((m.start(), m.end(), "[RELATIVE_NAME]"))
+
     return _apply_replacements(text, edits)
 
 
-def redact_structured_value(field_name: str, value: str) -> tuple[str, int]:
+def redact_structured_value(
+    field_name: str, value: str, alias_index: AliasIndex | None = None
+) -> tuple[str, int]:
     """Redact a structured CSV cell or JSON scalar value using field context + free-text fallback."""
     if not value or not value.strip():
         return value, 0
@@ -279,7 +375,7 @@ def redact_structured_value(field_name: str, value: str) -> tuple[str, int]:
     tag = classify_field_name(field_name)
     if tag is not None:
         if tag == "LOCALITY":
-            cleaned, n = redact_free_text(value)
+            cleaned, n = redact_free_text(value, alias_index=alias_index)
             if n > 0:
                 parts = [p.strip() for p in cleaned.split(",")]
                 out_parts: list[str] = []
@@ -292,4 +388,4 @@ def redact_structured_value(field_name: str, value: str) -> tuple[str, int]:
                         extra += 1
                 return ", ".join(out_parts), n + extra
         return f"[{tag}]", 1
-    return redact_free_text(value)
+    return redact_free_text(value, alias_index=alias_index)

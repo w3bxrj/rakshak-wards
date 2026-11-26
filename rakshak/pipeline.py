@@ -10,6 +10,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from rakshak.detect import AliasIndex, classify_field_name
 from rakshak.ingest import (
     SUPPORTED_EXTENSIONS,
     QuarantineError,
@@ -90,19 +91,96 @@ def _inject_psn_json(doc: Any, loc: str, psn: str) -> None:
 
 def _compute_rare_patients(
     all_features: list[IdentityFeatures], psn_map: dict[int, str | None], band_width: int
-) -> set[str]:
-    """Identify linked patients in small equivalence classes (k < 3) for progressive coarsening."""
-    patient_cells: dict[str, tuple[str, str]] = {}
+) -> tuple[set[str], set[int]]:
+    """Identify linked patients and unlinked records in small (age_band, gender, district) cells (k < 3)."""
+    patient_cells: dict[str, tuple[str, str, str]] = {}
     for idx, feat in enumerate(all_features):
         psn = psn_map.get(idx)
         if not psn:
             continue
         ab = format_age_band(feat.age, band_width) if feat.age is not None else "?"
         g = feat.gender or "?"
-        if psn not in patient_cells or (ab != "?" and patient_cells[psn][0] == "?"):
-            patient_cells[psn] = (ab, g)
+        d = feat.district or "?"
+        if psn not in patient_cells:
+            patient_cells[psn] = (ab, g, d)
+        else:
+            prev_ab, prev_g, prev_d = patient_cells[psn]
+            patient_cells[psn] = (
+                ab if prev_ab == "?" and ab != "?" else prev_ab,
+                g if prev_g == "?" and g != "?" else prev_g,
+                d if prev_d == "?" and d != "?" else prev_d,
+            )
     cell_counts = Counter(patient_cells.values())
-    return {psn for psn, cell in patient_cells.items() if cell_counts[cell] < 3}
+    rare_psns = {psn for psn, cell in patient_cells.items() if cell_counts[cell] < 3}
+
+    rare_unlinked: set[int] = set()
+    for idx, feat in enumerate(all_features):
+        if psn_map.get(idx) is not None:
+            continue
+        if feat.age is None and feat.gender is None and feat.district is None:
+            continue
+        ab = format_age_band(feat.age, band_width) if feat.age is not None else "?"
+        cell = (ab, feat.gender or "?", feat.district or "?")
+        if cell_counts.get(cell, 0) < 3:
+            rare_unlinked.add(idx)
+    return rare_psns, rare_unlinked
+
+
+def _build_transient_alias_index(inp: Path, max_depth: int = 64) -> AliasIndex:
+    """Pre-scan structured CSV/TSV/JSON/FHIR inputs to build a transient in-memory alias index."""
+    idx = AliasIndex()
+
+    def _collect_json(node: Any, field: str = "", in_fhir_name: bool = False) -> None:
+        if isinstance(node, str):
+            if in_fhir_name:
+                idx.add(node, is_relative=False)
+            elif field:
+                tag = classify_field_name(field)
+                if tag == "PATIENT_NAME":
+                    idx.add(node, is_relative=False)
+                elif tag == "RELATIVE_NAME":
+                    idx.add(node, is_relative=True)
+        elif isinstance(node, list):
+            for x in node:
+                _collect_json(x, field=field, in_fhir_name=in_fhir_name)
+        elif isinstance(node, dict):
+            rt = str(node.get("resourceType", "")).casefold()
+            for k, v in node.items():
+                low = k.strip().casefold()
+                _collect_json(v, field=k, in_fhir_name=in_fhir_name or (low == "name" and rt in {"patient", "relatedperson", "person"}))
+
+    for path in sorted(p for p in inp.rglob("*") if p.is_file()):
+        ext = path.suffix.lower()
+        if ext not in (".csv", ".tsv", ".json"):
+            continue
+        try:
+            text = decode_bytes(path.read_bytes())
+        except QuarantineError:
+            continue
+        if ext in (".csv", ".tsv"):
+            delim = "\t" if ext == ".tsv" else ","
+            try:
+                rows = list(csv.reader(io.StringIO(text, newline=""), delimiter=delim))
+            except csv.Error:
+                continue
+            if not rows:
+                continue
+            header = rows[0]
+            col_tags = [classify_field_name(h) for h in header]
+            for row in rows[1:]:
+                for c_idx, cell in enumerate(row):
+                    if c_idx < len(col_tags) and col_tags[c_idx] in ("PATIENT_NAME", "RELATIVE_NAME"):
+                        idx.add(cell, is_relative=(col_tags[c_idx] == "RELATIVE_NAME"))
+        elif ext == ".json":
+            try:
+                data = json.loads(text)
+                _check_json_depth(data, max_depth=max_depth)
+            except (json.JSONDecodeError, RecursionError, QuarantineError):
+                continue
+            _collect_json(data)
+
+    idx.compile()
+    return idx
 
 
 def run_pipeline(inp: Path, out: Path, policy_path: Path | None = None) -> dict[str, Any]:
@@ -117,7 +195,7 @@ def run_pipeline(inp: Path, out: Path, policy_path: Path | None = None) -> dict[
     san_dir = out / "sanitized"
     san_dir.mkdir(parents=True, exist_ok=True)
 
-    sanitizer = Sanitizer()
+    sanitizer = Sanitizer(alias_index=_build_transient_alias_index(inp, max_depth=max_depth))
     files_report: list[dict[str, Any]] = []
     used_out_paths: set[str] = set()
 
@@ -266,7 +344,7 @@ def run_pipeline(inp: Path, out: Path, policy_path: Path | None = None) -> dict[
     for r_idx, psn in psn_map.items():
         records[r_idx]["patient"] = psn
 
-    rare_patients = _compute_rare_patients(all_features, psn_map, band_width)
+    rare_patients, rare_unlinked = _compute_rare_patients(all_features, psn_map, band_width)
     records_generalized = 0
 
     def _offset_for(r_idx: int) -> int:
@@ -286,7 +364,7 @@ def run_pipeline(inp: Path, out: Path, policy_path: Path | None = None) -> dict[
             for row, r_idx in zip(sf["rows"], sf["rec_indices"]):
                 psn = psn_map.get(r_idx)
                 row_with_psn = _inject_psn_csv_row(row, psn) if psn else row
-                is_rare = psn in rare_patients if psn else False
+                is_rare = (psn in rare_patients) if psn else (r_idx in rare_unlinked)
                 bw = band_width * 2 if is_rare else band_width
                 priv_row = apply_privacy_to_csv_row(
                     sf["orig_header"],
@@ -306,7 +384,7 @@ def run_pipeline(inp: Path, out: Path, policy_path: Path | None = None) -> dict[
             if len(sf["rec_indices"]) == 1 and records[sf["rec_indices"][0]]["loc"] == "doc":
                 r_idx = sf["rec_indices"][0]
                 psn = psn_map.get(r_idx)
-                is_rare = psn in rare_patients if psn else False
+                is_rare = (psn in rare_patients) if psn else (r_idx in rare_unlinked)
                 bw = band_width * 2 if is_rare else band_width
                 if psn:
                     _inject_psn_json(doc, "doc", psn)
@@ -318,7 +396,7 @@ def run_pipeline(inp: Path, out: Path, policy_path: Path | None = None) -> dict[
                 for r_idx in sf["rec_indices"]:
                     psn = psn_map.get(r_idx)
                     loc = records[r_idx]["loc"]
-                    is_rare = psn in rare_patients if psn else False
+                    is_rare = (psn in rare_patients) if psn else (r_idx in rare_unlinked)
                     bw = band_width * 2 if is_rare else band_width
                     if psn:
                         _inject_psn_json(doc, loc, psn)

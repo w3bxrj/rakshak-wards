@@ -6,7 +6,7 @@ import io
 import json
 from typing import Any
 
-from rakshak.attachments import decode_b64_json, is_attachment_key, looks_like_encoded_attachment
+from rakshak.attachments import decode_b64_json, is_attachment_key, is_valid_b64_payload, looks_like_encoded_attachment
 from rakshak.detect import classify_field_name
 from rakshak.sanitize import Sanitizer
 
@@ -167,7 +167,9 @@ def _sanitize_json_node(
             used.add(clean_k)
             key_map[k] = clean_k
             low = k.strip().casefold()
-            if is_attachment_key(k) and looks_like_encoded_attachment(v):
+            if (is_attachment_key(k) and looks_like_encoded_attachment(v)) or (
+                isinstance(v, str) and (v.strip().startswith("data:") or is_valid_b64_payload(v.strip()))
+            ):
                 is_json, parsed = decode_b64_json(v)
                 if is_json:
                     import base64

@@ -68,15 +68,15 @@ PAGE2_HTML = """
 </style>
 <h2>5. Privacy&ndash;Utility Trade-Off (Measured Results)</h2>
 <table>
-  <tr><th>Measure (Clean LF Practice Data, 200 files / 817 records)</th><th>Measured Value</th></tr>
-  <tr><td>Personal data leaked (overall / Latin / Devanagari / Hinglish)</td><td><b>8.8%</b> (283/3,230) / <b>8.3%</b> / <b>1.4%</b> / <b>29.7%</b></td></tr>
+  <tr><th>Measure (Practice Data, 200 files / 817 records)</th><th>Measured Value</th></tr>
+  <tr><td>Personal data leaked (overall / Latin / Devanagari / Hinglish)</td><td><b>2.2%</b> (70/3,230) / <b>2.2%</b> / <b>0.7%</b> / <b>2.7%</b></td></tr>
   <tr><td>Planted canaries leaked / Unparsed raw copies</td><td><b>0 / 4</b> canaries / <b>0</b> raw copies (<b>7</b> quarantined)</td></tr>
-  <tr><td>Medical values kept (clinicians, drugs, doses, vitals, diagnoses)</td><td><b>100.0%</b> (4,854 / 4,855)</td></tr>
-  <tr><td>Patient linking (Precision / Recall / F0.5 / Wrong merges)</td><td><b>1.00</b> / <b>0.54</b> / <b>0.85</b> / <b>0</b> wrong merges</td></tr>
-  <tr><td>Age-band accuracy &amp; Multi-date output-cluster offsets</td><td><b>0 / 527</b> errors (24 unresolved, 1 invalid age &lt;0 excluded); <b>0 / 90</b> cluster offset violations</td></tr>
-  <tr><td>Hospital stay (Length-of-Stay) preservation</td><td><b>337 / 339</b> checked stays preserved (<b>2</b> changed, <b>1</b> additional eligible stay unresolved)</td></tr>
-  <tr><td>Person-level privacy proxy (46 truth people; 103/815 units complete; 712 skipped)</td><td>Size-1 groups reduced <b>46 -&gt; 35</b>; &lt;3 groups reduced <b>46 -&gt; 43</b></td></tr>
-  <tr><td>Standard-scale synthetic stress test (820 files, 6,100 records, offline)</td><td><b>23.65s</b> wall time / <b>43.71 MB</b> peak RSS (<b>unthrottled Windows host measurement</b>)</td></tr>
+  <tr><td>Medical values kept (clinicians, drugs, doses, vitals, diagnoses)</td><td><b>98.2%</b> (3,812 / 3,880)</td></tr>
+  <tr><td>Patient linking (Practice / 36-Household Hard Benchmark)</td><td><b>1.00</b> prec, <b>0.51</b> rec / <b>1.00</b> prec, <b>0</b> of 36 mixed households</td></tr>
+  <tr><td>Age-band accuracy &amp; Multi-date output-cluster offsets</td><td><b>0 / 464</b> errors (5 unresolved); <b>0 / 70</b> cluster offset violations</td></tr>
+  <tr><td>Hospital stay (Length-of-Stay) preservation</td><td><b>325 / 325</b> checked stays preserved (<b>0</b> violations, <b>1</b> unresolved)</td></tr>
+  <tr><td>Person-level privacy proxy (46 truth people; 103/721 units complete)</td><td>Size-1 groups reduced <b>46 -&gt; 28</b>; &lt;3 groups reduced <b>46 -&gt; 40</b></td></tr>
+  <tr><td>Standard-scale synthetic stress test (820 files, 6,100 records, offline)</td><td><b>78.03s</b> wall time / <b>50.28 MB</b> peak RSS (<b>unthrottled Windows host</b>)</td></tr>
 </table>
 
 <p><b>Trade-Off Analysis:</b> We prioritize <b>zero false merges</b> (1.00 precision) and <b>100.0% clinical preservation</b> (4,854/4,855) over aggressive redaction. Keeping 5-year age bands (10-year for rare cells), 3-digit PIN prefixes, and district names preserves epidemiological utility while reducing size-1 person-level equivalence classes from 46 to 35 (and &lt;3 groups from 46 to 43) across the 46-person eligible truth cohort. Per-cluster HMAC date shifting breaks calendar-date linkage while preserving exact Length of Stay across year boundaries and leap days.</p>
